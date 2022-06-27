@@ -1,0 +1,13 @@
+{
+	"require": {
+		"sattip/obs-xml-export": "dev-main"
+	},
+	"minimum-stability": "dev",
+	"prefer-stable" : true,
+	"repositories": [
+        {
+            "type": "vcs",
+			"url": "https://github.com/sattip/obs-xml-export"
+        }
+    ]
+}
