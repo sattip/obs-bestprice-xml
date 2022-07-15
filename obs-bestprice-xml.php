@@ -3,7 +3,7 @@
 * Plugin Name: OBS Bestprice XML
 * Plugin URI:
 * Description: Export woocommerce products as xml for bestprice.
-* Version: 0.0.1
+* Version: 2.0.1
 * Author: OBS Technologies
 * Author URI: https://obstechnologies.com/
 * License:
@@ -34,8 +34,12 @@ class OBSBestpriceXML extends OBSXMLExport{
 	public function product_xml($product, $variation_id = null, $sizes = null){
 		
 		$parent = $product;
-		if($variation_id){
+		$variations = null;
+		if(is_int($variation_id)){
 			$product = wc_get_product($variation_id);
+		}elseif(is_array($variation_id) && count($variation_id)){
+			$variations = $variation_id;
+			$product = $variations[0];
 		}
 		
 		$name = $this->get_product_name($parent, $product);
@@ -77,7 +81,7 @@ class OBSBestpriceXML extends OBSXMLExport{
 		$this->output_xml('availability' , $this->get_availability($parent), true);
 		$this->output_xml('mpn' , $this->get_mpn($product), true);
 		$this->output_xml('weight' , $this->get_weight($product), true);
-		$this->output_xml('size' , $this->get_sizes($product), true);
+		$this->output_xml('size' , $size, true);
 		
 		$tags = apply_filters($this->slug.'_append_xml',[], $product, $parent);
 		
@@ -94,35 +98,88 @@ class OBSBestpriceXML extends OBSXMLExport{
 		//print_r($this->options);
 		$header = $footer = '';
 		$this->xml = new XMLWriter();
-		$this->xml->openMemory();		
+		$this->xml->openMemory();
+		
 		if($limit == -1){
 			$header = $this->generate_xml_header();
 		}
 		while ($loop->have_posts()) {
 			$loop->the_post();
 			$product = apply_filters($this->slug.'_product_locale', wc_get_product(get_the_ID()));
-			if ( !$product->is_type( 'variable' ) ) {
-				if(isset($this->options['skip_backordered_products']) && $this->options['skip_backordered_products'] && $this->is_on_backorder($product)){
-					continue;
-				} elseif (isset($this->options['skip_out_of_stock_products']) && $this->options['skip_out_of_stock_products'] && !$this->is_on_backorder($product) && !$product->is_in_stock()){
-					continue;
-				}
-				$this->product_xml($product);
-			}else{
-				$variations = $product->get_children();
-				$size_price_map = [];
-				$has_sizes = false;
-				$has_colors = false;
-				foreach($variations as $key => $variation){
-					$product_variation = new WC_Product_Variation($variation);
-					if(isset($this->options['skip_backordered_products']) && $this->options['skip_backordered_products'] && $this->is_on_backorder($product_variation)){
-						unset($variations[$key]);
+			if ($product) {
+				if ( !$product->is_type( 'variable' ) ) {
+					if(isset($this->options['skip_backordered_products']) && $this->options['skip_backordered_products'] && $this->is_on_backorder($product)){
 						continue;
-					} elseif (isset($this->options['skip_out_of_stock_products']) && $this->options['skip_out_of_stock_products'] && !$this->is_on_backorder($product_variation) && !$product_variation->is_in_stock()){
-						unset($variations[$key]);
+					} elseif (isset($this->options['skip_out_of_stock_products']) && $this->options['skip_out_of_stock_products'] && !$this->is_on_backorder($product) && !$product->is_in_stock()){
 						continue;
 					}
-					$this->product_xml($product, $product_variation);
+					$this->product_xml($product);
+				}else{
+					$variations = $product->get_children();
+					$size_map = [];
+					$size_price_map = [];
+					$has_sizes = false;
+					$has_colors = false;
+					foreach($variations as $key => $variation){
+						$product_variation = new WC_Product_Variation($variation);
+						if(isset($this->options['skip_backordered_products']) && $this->options['skip_backordered_products'] && $this->is_on_backorder($product_variation)){
+							unset($variations[$key]);
+							continue;
+						} elseif (isset($this->options['skip_out_of_stock_products']) && $this->options['skip_out_of_stock_products'] && !$this->is_on_backorder($product_variation) && !$product_variation->is_in_stock()){
+							unset($variations[$key]);
+							continue;
+						}
+						$attributes = $product_variation->get_attributes();
+						$attr_size = $this->get_attribute_by_slug($product_variation, $attributes, $this->options['size_attributes'], false);
+						if($attr_size){
+							$has_sizes = true;
+							$attr_color = $this->get_attribute_by_slug($product_variation, $attributes, $this->options['color_attributes'], false);
+							$price = (string) wc_get_price_to_display($product_variation);
+							if(!$attr_color){
+								if(!isset($size_price_map[$price])){
+									$size_price_map[$price] = [];
+								}
+								$size_price_map[$price][$variation] = $attr_size;
+								$size_map[] = $product_variation;
+							}else{
+								$has_colors = true;
+								if(!isset($size_price_map[$attr_color][$price])){
+									$size_price_map[$attr_color][$price] = [];
+								}
+								$size_price_map[$attr_color][$price][$variation] = $attr_size;
+								$size_map[$attr_color][] = $product_variation;
+							}
+						}
+					}
+					if($has_sizes){
+						if($has_colors){
+							if(isset($this->options['use_skroutz_newer_export_format']) && $this->options['use_skroutz_newer_export_format'] == '1'){
+								foreach($size_map as $color => $children){
+									$this->product_xml($product, $children);
+								}
+							}else{
+								foreach($size_price_map as $color => $price_map){
+									foreach($price_map as $price => $sizes){
+										$variations = array_keys($sizes);
+										$this->product_xml($product, array_shift($variations), array_values($sizes));
+									}
+								}
+							}
+						}else{
+							if(isset($this->options['use_skroutz_newer_export_format']) && $this->options['use_skroutz_newer_export_format'] == '1'){
+								$this->product_xml($product, $size_map);
+							}else{
+								foreach($size_price_map as $price => $sizes){
+									$variations = array_keys($sizes);
+									$this->product_xml($product, array_shift($variations), array_values($sizes));
+								}
+							}
+						}
+					}else{
+						foreach($variations as $key => $variation){
+							$this->product_xml($product, $variation);
+						}
+					}
 				}
 			}
 		}
