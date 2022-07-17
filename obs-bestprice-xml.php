@@ -3,7 +3,7 @@
 * Plugin Name: OBS Bestprice XML
 * Plugin URI:
 * Description: Export woocommerce products as xml for bestprice.
-* Version: 0.0.1
+* Version: 2.0.1
 * Author: OBS Technologies
 * Author URI: https://obstechnologies.com/
 * License:
